@@ -1,109 +1,119 @@
-import { z } from "zod";
-import { getSupabaseServiceClient } from "@/lib/supabase";
-import { CURATED_TEMPLATES } from "@/lib/template-data";
-import type { Template } from "@/types/template";
+import { TEMPLATE_CATALOG } from "@/lib/template-seed";
+import { getSupabaseAdminClient, isSupabaseConfigured } from "@/lib/supabase";
+import { Template, TemplateFilters } from "@/types/template";
 
-const templateSchema = z.object({
-  id: z.string(),
-  slug: z.string(),
-  name: z.string(),
-  summary: z.string(),
-  description: z.string(),
-  category: z.enum(["Full-Stack", "Frontend", "Backend", "Mobile", "Data"]),
-  stack: z.array(z.string()),
-  difficulty: z.enum(["Beginner", "Intermediate", "Advanced"]),
-  setupTime: z.string(),
-  repoUrl: z.string().url(),
-  demoUrl: z.string().url().optional(),
-  stars: z.number().int().nonnegative(),
-  license: z.enum(["MIT", "Apache-2.0", "GPL-3.0", "BSD-3-Clause"]),
-  lastUpdated: z.string(),
-  tags: z.array(z.string()),
-  previewImages: z.array(z.string().url()),
-  highlights: z.array(z.string()),
-  featured: z.boolean().optional()
-});
+type TemplateRow = {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string;
+  description: string;
+  category: Template["category"];
+  pricing: Template["pricing"];
+  technologies: string[];
+  features: string[];
+  repository_url: string;
+  preview_url: string;
+  stars: number;
+  updated_at: string;
+  setup_time_minutes: number;
+  difficulty: Template["difficulty"];
+};
 
-export interface TemplateFilters {
-  search?: string;
-  stack?: string;
-  difficulty?: Template["difficulty"];
-  license?: Template["license"];
-  limit?: number;
+function normalizeTemplate(row: TemplateRow): Template {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    tagline: row.tagline,
+    description: row.description,
+    category: row.category,
+    pricing: row.pricing,
+    technologies: row.technologies,
+    features: row.features,
+    repositoryUrl: row.repository_url,
+    previewUrl: row.preview_url,
+    stars: row.stars,
+    updatedAt: row.updated_at,
+    setupTimeMinutes: row.setup_time_minutes,
+    difficulty: row.difficulty
+  };
 }
 
-function normalizeTemplate(input: unknown): Template | null {
-  const parsed = templateSchema.safeParse(input);
-  return parsed.success ? parsed.data : null;
-}
-
-function applyFilters(templates: Template[], filters: TemplateFilters): Template[] {
-  let filtered = [...templates];
-
-  if (filters.search) {
-    const q = filters.search.trim().toLowerCase();
-    filtered = filtered.filter((template) => {
-      const haystack = [
-        template.name,
-        template.summary,
-        template.description,
-        template.tags.join(" "),
-        template.stack.join(" ")
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(q);
-    });
+async function loadFromSupabase(): Promise<Template[] | null> {
+  if (!isSupabaseConfigured()) {
+    return null;
   }
 
-  if (filters.stack) {
-    filtered = filtered.filter((template) =>
-      template.stack.some((item) => item.toLowerCase() === filters.stack?.toLowerCase())
-    );
-  }
-
-  if (filters.difficulty) {
-    filtered = filtered.filter((template) => template.difficulty === filters.difficulty);
-  }
-
-  if (filters.license) {
-    filtered = filtered.filter((template) => template.license === filters.license);
-  }
-
-  filtered.sort((a, b) => b.stars - a.stars);
-
-  if (filters.limit && filters.limit > 0) {
-    return filtered.slice(0, filters.limit);
-  }
-
-  return filtered;
-}
-
-async function fetchTemplatesFromSupabase(): Promise<Template[] | null> {
-  const supabase = getSupabaseServiceClient();
-
+  const supabase = getSupabaseAdminClient();
   if (!supabase) {
     return null;
   }
 
-  const { data, error } = await supabase.from("templates").select("*").limit(300);
+  const { data, error } = await supabase
+    .from("templates")
+    .select("*")
+    .order("stars", { ascending: false });
 
   if (error || !data) {
     return null;
   }
 
-  const parsed = data.map(normalizeTemplate).filter((template): template is Template => Boolean(template));
-  return parsed.length ? parsed : null;
+  return (data as TemplateRow[]).map(normalizeTemplate);
 }
 
-export async function getTemplates(filters: TemplateFilters = {}): Promise<Template[]> {
-  const supabaseTemplates = await fetchTemplatesFromSupabase();
-  const source = supabaseTemplates ?? CURATED_TEMPLATES;
-  return applyFilters(source, filters);
+function applyFilters(templates: Template[], filters?: TemplateFilters) {
+  if (!filters) {
+    return templates;
+  }
+
+  const query = filters.query?.trim().toLowerCase();
+
+  return templates.filter((template) => {
+    const matchesQuery =
+      !query ||
+      template.name.toLowerCase().includes(query) ||
+      template.tagline.toLowerCase().includes(query) ||
+      template.technologies.some((tech) => tech.toLowerCase().includes(query));
+
+    const matchesCategory =
+      !filters.category ||
+      filters.category === "All" ||
+      template.category === filters.category;
+
+    const matchesTechnology =
+      !filters.technology ||
+      filters.technology === "All" ||
+      template.technologies.includes(filters.technology);
+
+    const matchesPricing =
+      !filters.pricing ||
+      filters.pricing === "all" ||
+      template.pricing === filters.pricing;
+
+    return (
+      matchesQuery && matchesCategory && matchesTechnology && matchesPricing
+    );
+  });
 }
 
-export async function getTemplateById(id: string): Promise<Template | null> {
+export async function getTemplates(filters?: TemplateFilters) {
+  const supabaseTemplates = await loadFromSupabase();
+  const source = supabaseTemplates ?? TEMPLATE_CATALOG;
+  const filtered = applyFilters(source, filters);
+
+  return filtered.sort((a, b) => b.stars - a.stars);
+}
+
+export async function getTemplateBySlug(slug: string) {
   const templates = await getTemplates();
-  return templates.find((template) => template.id === id || template.slug === id) ?? null;
+  return templates.find((template) => template.slug === slug) ?? null;
+}
+
+export function getTemplateCategories(templates: Template[]) {
+  return ["All", ...new Set(templates.map((template) => template.category))];
+}
+
+export function getTemplateTechnologies(templates: Template[]) {
+  return ["All", ...new Set(templates.flatMap((template) => template.technologies))];
 }

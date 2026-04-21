@@ -1,88 +1,94 @@
 "use client";
 
-import { Search, X } from "lucide-react";
-import { useTemplateFilters } from "@/lib/template-store";
+import { Search, SlidersHorizontal } from "lucide-react";
+import { useTemplateFilterStore } from "@/lib/template-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { TemplateDifficulty, TemplateLicense } from "@/types/template";
+import { Select } from "@/components/ui/select";
 
-interface SearchFiltersProps {
-  availableStacks: string[];
-  availableLicenses: TemplateLicense[];
-}
+type SearchFiltersProps = {
+  categories: string[];
+  technologies: string[];
+};
 
-const difficultyOptions: Array<"all" | TemplateDifficulty> = ["all", "Beginner", "Intermediate", "Advanced"];
-
-export function SearchFilters({ availableStacks, availableLicenses }: SearchFiltersProps) {
-  const { search, stack, difficulty, license, setSearch, setStack, setDifficulty, setLicense, resetFilters } =
-    useTemplateFilters();
+export function SearchFilters({ categories, technologies }: SearchFiltersProps) {
+  const {
+    query,
+    category,
+    technology,
+    pricing,
+    setQuery,
+    setCategory,
+    setTechnology,
+    setPricing,
+    reset
+  } = useTemplateFilterStore();
 
   return (
-    <div className="surface-card rounded-xl p-4 md:p-5">
-      <div className="grid gap-3 md:grid-cols-4">
-        <div className="relative md:col-span-2">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
+    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 md:p-5">
+      <div className="grid gap-3 lg:grid-cols-4">
+        <div className="relative lg:col-span-2">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by stack, use case, feature, or workflow"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
             className="pl-9"
+            placeholder="Search by stack, feature, or use case"
           />
         </div>
 
-        <select
-          value={stack}
-          onChange={(event) => setStack(event.target.value)}
-          className="h-10 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 text-sm"
-          aria-label="Filter by stack"
+        <Select
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+          aria-label="Filter by category"
         >
-          <option value="all">All stacks</option>
-          {availableStacks.map((item) => (
+          {categories.map((item) => (
             <option key={item} value={item}>
               {item}
             </option>
           ))}
-        </select>
+        </Select>
 
-        <div className="grid grid-cols-2 gap-3">
-          <select
-            value={difficulty}
-            onChange={(event) => setDifficulty(event.target.value as "all" | TemplateDifficulty)}
-            className="h-10 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 text-sm"
-            aria-label="Filter by difficulty"
-          >
-            {difficultyOptions.map((option) => (
-              <option key={option} value={option}>
-                {option === "all" ? "Any level" : option}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={license}
-            onChange={(event) => setLicense(event.target.value as "all" | TemplateLicense)}
-            className="h-10 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 text-sm"
-            aria-label="Filter by license"
-          >
-            <option value="all">Any license</option>
-            {availableLicenses.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          value={technology}
+          onChange={(event) => setTechnology(event.target.value)}
+          aria-label="Filter by technology"
+        >
+          {technologies.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </Select>
       </div>
 
-      <div className="mt-4 flex items-center justify-between">
-        <p className="text-xs text-[var(--muted)]">
-          Filter templates by stack fit, complexity, and legal constraints before cloning.
-        </p>
-        <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
-          <X className="h-4 w-4" />
-          Reset
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-lg border border-slate-700 p-1">
+          {[
+            { label: "All", value: "all" },
+            { label: "Free", value: "free" },
+            { label: "Premium", value: "premium" }
+          ].map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setPricing(item.value as "all" | "free" | "premium")}
+              className={`rounded-md px-3 py-1.5 text-sm transition ${
+                pricing === item.value
+                  ? "bg-teal-500 text-slate-950"
+                  : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <Button variant="ghost" size="sm" onClick={reset}>
+          <SlidersHorizontal className="mr-2 h-4 w-4" />
+          Reset Filters
         </Button>
       </div>
-    </div>
+    </section>
   );
 }

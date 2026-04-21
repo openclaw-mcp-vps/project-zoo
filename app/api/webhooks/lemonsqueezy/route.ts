@@ -1,101 +1,94 @@
 import { NextRequest, NextResponse } from "next/server";
-import { lemonSqueezySetup } from "@lemonsqueezy/lemonsqueezy.js";
-import { lemonWebhookSchema, verifyLemonWebhookSignature } from "@/lib/lemonsqueezy";
-import { getSupabaseServiceClient } from "@/lib/supabase";
+import { ACCESS_COOKIE_MAX_AGE, ACCESS_COOKIE_NAME } from "@/lib/constants";
+import {
+  createAccessToken,
+  verifyAccessToken,
+  verifyPurchaseSignature
+} from "@/lib/lemonsqueezy";
 
-const statusByEventName: Record<string, "active" | "inactive"> = {
-  order_created: "active",
-  subscription_created: "active",
-  subscription_resumed: "active",
-  subscription_payment_success: "active",
-  subscription_expired: "inactive",
-  subscription_cancelled: "inactive"
+type StripeLikeEvent = {
+  type?: string;
+  email?: string;
+  data?: {
+    object?: {
+      customer_details?: {
+        email?: string;
+      };
+    };
+    attributes?: {
+      user_email?: string;
+    };
+  };
 };
 
-function extractEmail(attributes: Record<string, unknown>): string | null {
-  const emailValue = attributes.user_email ?? attributes.customer_email ?? attributes.email;
-
-  if (typeof emailValue !== "string") {
-    return null;
-  }
-
-  return emailValue;
+function extractEmail(payload: StripeLikeEvent) {
+  return (
+    payload.email ??
+    payload.data?.object?.customer_details?.email ??
+    payload.data?.attributes?.user_email ??
+    null
+  );
 }
 
-function extractOrderId(payloadId: string, attributes: Record<string, unknown>): string {
-  const candidates = [attributes.order_id, attributes.order_number, attributes.identifier, payloadId];
-
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim().length > 0) {
-      return candidate;
-    }
-
-    if (typeof candidate === "number") {
-      return String(candidate);
-    }
-  }
-
-  return payloadId;
+function setAccessCookie(response: NextResponse, accessToken: string) {
+  response.cookies.set({
+    name: ACCESS_COOKIE_NAME,
+    value: accessToken,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: ACCESS_COOKIE_MAX_AGE,
+    path: "/"
+  });
 }
 
 export async function POST(request: NextRequest) {
-  if (process.env.LEMON_SQUEEZY_API_KEY) {
-    lemonSqueezySetup({
-      apiKey: process.env.LEMON_SQUEEZY_API_KEY
-    });
+  const signature =
+    request.headers.get("x-project-zoo-signature") ??
+    request.headers.get("stripe-signature");
+
+  if (!verifyPurchaseSignature(signature)) {
+    return NextResponse.json(
+      { error: "Invalid webhook signature." },
+      { status: 401 }
+    );
   }
 
-  const rawBody = await request.text();
-  const signature = request.headers.get("x-signature") ?? request.headers.get("X-Signature");
-
-  if (!(await verifyLemonWebhookSignature(rawBody, signature))) {
-    return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
-  }
-
-  const payloadResult = lemonWebhookSchema.safeParse(JSON.parse(rawBody));
-
-  if (!payloadResult.success) {
-    return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
-  }
-
-  const payload = payloadResult.data;
-  const eventName = payload.meta.event_name;
-  const nextStatus = statusByEventName[eventName];
-
-  if (!nextStatus) {
-    return NextResponse.json({ received: true, ignored: true, reason: "Unhandled event" });
-  }
-
-  const attributes = (payload.data.attributes ?? {}) as Record<string, unknown>;
-  const email = extractEmail(attributes);
+  const payload = (await request.json().catch(() => ({}))) as StripeLikeEvent;
+  const eventType = payload.type ?? "unknown";
+  const email = extractEmail(payload);
 
   if (!email) {
-    return NextResponse.json({ error: "Webhook payload is missing customer email" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Unable to locate buyer email in payload." },
+      { status: 400 }
+    );
   }
 
-  const orderId = extractOrderId(payload.data.id, attributes);
-  const supabase = getSupabaseServiceClient();
+  const accessToken = createAccessToken(email);
 
-  if (!supabase) {
-    return NextResponse.json({ received: true, warning: "Supabase not configured; event accepted without persistence." });
+  return NextResponse.json({
+    received: true,
+    eventType,
+    email,
+    accessToken,
+    instructions:
+      "Send this access token to the buyer, then call /api/access/claim from the client to set the paywall cookie."
+  });
+}
+
+export async function GET(request: NextRequest) {
+  const email = request.nextUrl.searchParams.get("email");
+  const accessToken = request.nextUrl.searchParams.get("access_token");
+
+  const tokenPayload = verifyAccessToken(accessToken);
+
+  if (!email || !accessToken || !tokenPayload || tokenPayload.email !== email) {
+    return NextResponse.redirect(new URL("/?paywall=1", request.url));
   }
 
-  const { error } = await supabase.from("purchases").upsert(
-    {
-      order_id: orderId,
-      email,
-      status: nextStatus,
-      source: "lemonsqueezy",
-      updated_at: new Date().toISOString()
-    },
-    {
-      onConflict: "order_id"
-    }
-  );
+  const response = NextResponse.redirect(new URL("/browse", request.url));
+  setAccessCookie(response, accessToken);
 
-  if (error) {
-    return NextResponse.json({ error: "Failed to persist webhook event" }, { status: 500 });
-  }
-
-  return NextResponse.json({ received: true, orderId, status: nextStatus });
+  return response;
 }

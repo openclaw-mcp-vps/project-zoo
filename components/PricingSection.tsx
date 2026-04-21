@@ -1,149 +1,111 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2, Lock, Rocket, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-interface AccessPayload {
-  message?: string;
-  error?: string;
-}
-
 export function PricingSection() {
-  const router = useRouter();
-  const checkoutVariantId = process.env.NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID;
-  const checkoutUrl = checkoutVariantId
-    ? `https://checkout.lemonsqueezy.com/buy/${checkoutVariantId}?embed=1&media=0&logo=0`
-    : "";
-
-  const [orderId, setOrderId] = useState("");
   const [email, setEmail] = useState("");
-  const [isUnlocking, setIsUnlocking] = useState(false);
+  const [accessToken, setAccessToken] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
-  async function unlockAccess() {
-    if (!orderId.trim() || !email.trim()) {
-      toast.error("Enter the order ID and purchase email to unlock access.");
+  async function claimAccess(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!email || !accessToken) {
+      toast.error("Enter the purchase email and access token from your receipt.");
       return;
     }
 
-    setIsUnlocking(true);
+    setIsLoading(true);
 
     try {
-      const response = await fetch("/api/access", {
+      const response = await fetch("/api/access/claim", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          orderId,
-          email
-        })
+        body: JSON.stringify({ email, accessToken })
       });
 
-      const payload = (await response.json()) as AccessPayload;
+      const result = (await response.json()) as { error?: string };
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "Unable to unlock your account yet.");
+        throw new Error(result.error ?? "Unable to unlock access.");
       }
 
-      toast.success(payload.message ?? "Access unlocked. Redirecting...");
-      router.push("/templates");
+      toast.success("Access unlocked. Redirecting to the template catalog...");
+      router.push("/browse");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unlock failed.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to validate your purchase right now."
+      );
     } finally {
-      setIsUnlocking(false);
+      setIsLoading(false);
     }
   }
 
   return (
-    <section id="pricing" className="scroll-mt-20">
-      <div className="mx-auto max-w-6xl px-4 py-20 md:px-8">
-        <div className="mb-10 max-w-2xl">
-          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">One plan, immediate setup velocity</h2>
-          <p className="mt-3 text-[var(--muted)]">
-            Skip repetitive starter setup and focus your coding time on product logic, not scaffolding.
+    <section id="pricing" className="mx-auto mt-20 w-full max-w-6xl px-4">
+      <Card className="border-teal-500/30 bg-slate-900/70">
+        <CardHeader>
+          <Badge className="w-fit">Pro Access</Badge>
+          <CardTitle className="mt-3 text-3xl sm:text-4xl">$19/month</CardTitle>
+          <p className="max-w-2xl text-slate-300">
+            Browse every curated template, copy production-ready clone commands,
+            and skip repetitive project setup every sprint.
           </p>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <Card className="border-blue-300/30">
-            <CardHeader>
-              <CardTitle className="text-2xl">project-zoo Pro</CardTitle>
-              <p className="text-4xl font-semibold tracking-tight">
-                $19
-                <span className="ml-1 text-base font-normal text-[var(--muted)]">/ month</span>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="space-y-4">
+              <a
+                href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-teal-500 px-6 font-semibold text-slate-950 transition hover:bg-teal-400"
+              >
+                Buy Pro Access
+              </a>
+              <p className="text-sm text-slate-400">
+                Hosted Stripe checkout. No account setup required. You can manage
+                billing directly from Stripe once subscribed.
               </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ul className="space-y-3 text-sm text-[var(--muted)]">
-                <li className="inline-flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />
-                  Curated template directory with quality checks and setup notes
-                </li>
-                <li className="inline-flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />
-                  Guided clone commands and stack filtering for faster project fit
-                </li>
-                <li className="inline-flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-green-300" />
-                  Ongoing additions of new boilerplates across frontend, backend, and mobile
-                </li>
-                <li className="inline-flex items-start gap-2">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 text-blue-300" />
-                  Access control backed by Lemon Squeezy payment + signed cookie gate
-                </li>
-              </ul>
+            </div>
 
-              {checkoutUrl ? (
-                <a href={checkoutUrl} className="lemonsqueezy-button block">
-                  <Button size="lg" className="w-full">
-                    <Rocket className="h-4 w-4" />
-                    Start Pro Access
-                  </Button>
-                </a>
-              ) : (
-                <Button size="lg" className="w-full" disabled>
-                  Configure Lemon Squeezy env vars to enable checkout
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="inline-flex items-center gap-2 text-xl">
-                <Lock className="h-5 w-5 text-blue-300" />
-                Unlock Your Purchase
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-[var(--muted)]">
-                After checkout, enter your Lemon Squeezy order ID and purchase email to activate your cookie-based access.
+            <form onSubmit={claimAccess} className="space-y-3">
+              <h3 className="text-base font-semibold text-slate-100">
+                Already purchased?
+              </h3>
+              <p className="text-sm text-slate-400">
+                Paste the access token from your receipt email to unlock the full
+                template catalog on this device.
               </p>
               <Input
-                value={orderId}
-                onChange={(event) => setOrderId(event.target.value)}
-                placeholder="Order ID (for example: 123456)"
-              />
-              <Input
+                type="email"
+                placeholder="you@company.com"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="Purchase email"
-                type="email"
               />
-              <Button onClick={unlockAccess} variant="success" className="w-full" disabled={isUnlocking}>
-                {isUnlocking ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {isUnlocking ? "Verifying..." : "Unlock Access"}
+              <Input
+                type="text"
+                placeholder="access token"
+                value={accessToken}
+                onChange={(event) => setAccessToken(event.target.value)}
+              />
+              <Button type="submit" disabled={isLoading}>
+                {isLoading ? "Validating..." : "Unlock Access"}
               </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            </form>
+          </div>
+        </CardContent>
+      </Card>
     </section>
   );
 }

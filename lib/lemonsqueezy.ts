@@ -1,137 +1,97 @@
-import { z } from "zod";
+import { createHmac, timingSafeEqual } from "crypto";
+import { lemonSqueezySetup } from "@lemonsqueezy/lemonsqueezy.js";
+import { ACCESS_COOKIE_MAX_AGE } from "@/lib/constants";
 
-export const ACCESS_COOKIE_NAME = "project_zoo_access";
+type AccessPayload = {
+  email: string;
+  plan: "pro";
+  iat: number;
+  exp: number;
+};
 
-const accessPayloadSchema = z.object({
-  orderId: z.string().min(1),
-  email: z.string().email(),
-  exp: z.number().int().positive()
-});
-
-export const lemonWebhookSchema = z
-  .object({
-    meta: z
-      .object({
-        event_name: z.string()
-      })
-      .passthrough(),
-    data: z
-      .object({
-        id: z.string(),
-        attributes: z.record(z.string(), z.unknown()).optional()
-      })
-      .passthrough()
-  })
-  .passthrough();
-
-export type LemonWebhookPayload = z.infer<typeof lemonWebhookSchema>;
-
-const signatureSecret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
-
-function toBase64Url(input: string): string {
-  const bytes = new TextEncoder().encode(input);
-  let binary = "";
-
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64Url(input: string): string {
-  const padded = input.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(input.length / 4) * 4, "=");
-  const binary = atob(padded);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-async function signValue(value: string): Promise<string> {
-  if (!signatureSecret) {
-    return "";
-  }
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(signatureSecret),
-    {
-      name: "HMAC",
-      hash: "SHA-256"
-    },
-    false,
-    ["sign"]
+function getCookieSecret() {
+  return (
+    process.env.PROJECT_ZOO_ACCESS_COOKIE_SECRET ??
+    process.env.STRIPE_WEBHOOK_SECRET ??
+    "project-zoo-local-dev-secret"
   );
-
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(signature))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
 
-export function getCheckoutUrl(): string {
-  const variantId = process.env.NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID;
-
-  if (!variantId) {
-    return "";
-  }
-
-  return `https://checkout.lemonsqueezy.com/buy/${variantId}?embed=1&media=0&logo=0`;
+function signPayload(payload: string) {
+  return createHmac("sha256", getCookieSecret()).update(payload).digest("base64url");
 }
 
-export async function verifyLemonWebhookSignature(
-  rawBody: string,
-  incomingSignature: string | null
-): Promise<boolean> {
-  if (!signatureSecret || !incomingSignature) {
+function safeCompare(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+
+  if (leftBuffer.length !== rightBuffer.length) {
     return false;
   }
 
-  const digest = await signValue(rawBody);
-  return digest === incomingSignature;
+  return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export async function createAccessToken(orderId: string, email: string): Promise<string> {
-  const payload = accessPayloadSchema.parse({
-    orderId,
-    email,
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 31
-  });
+export function bootstrapLemonSqueezyClient() {
+  const apiKey = process.env.LEMONSQUEEZY_API_KEY;
+  if (apiKey) {
+    lemonSqueezySetup({ apiKey, onError: (error) => console.error(error) });
+  }
+}
 
-  const encodedPayload = toBase64Url(JSON.stringify(payload));
-  const signature = await signValue(encodedPayload);
+export function createAccessToken(email: string) {
+  const now = Math.floor(Date.now() / 1000);
+  const payload: AccessPayload = {
+    email,
+    plan: "pro",
+    iat: now,
+    exp: now + ACCESS_COOKIE_MAX_AGE
+  };
+
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = signPayload(encodedPayload);
 
   return `${encodedPayload}.${signature}`;
 }
 
-export async function verifyAccessToken(
-  token: string | undefined
-): Promise<z.infer<typeof accessPayloadSchema> | null> {
-  if (!token || !signatureSecret) {
+export function verifyAccessToken(token: string | undefined | null) {
+  if (!token || !token.includes(".")) {
     return null;
   }
 
   const [encodedPayload, signature] = token.split(".");
-
   if (!encodedPayload || !signature) {
     return null;
   }
 
-  const expectedSignature = await signValue(encodedPayload);
+  const expectedSignature = signPayload(encodedPayload);
 
-  if (!expectedSignature || expectedSignature !== signature) {
+  const signatureMatches = safeCompare(signature, expectedSignature);
+
+  if (!signatureMatches) {
     return null;
   }
 
-  try {
-    const decoded = JSON.parse(fromBase64Url(encodedPayload));
-    const payload = accessPayloadSchema.parse(decoded);
+  const payload = JSON.parse(
+    Buffer.from(encodedPayload, "base64url").toString("utf8")
+  ) as AccessPayload;
 
-    if (payload.exp < Math.floor(Date.now() / 1000)) {
-      return null;
-    }
-
-    return payload;
-  } catch {
+  if (payload.exp < Math.floor(Date.now() / 1000)) {
     return null;
   }
+
+  return payload;
+}
+
+export function verifyPurchaseSignature(signature: string | null) {
+  if (!signature) {
+    return false;
+  }
+
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
+    return false;
+  }
+
+  return safeCompare(signature, secret);
 }

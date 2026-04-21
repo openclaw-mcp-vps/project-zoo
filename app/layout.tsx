@@ -1,75 +1,62 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
-import Script from "next/script";
-import type { ReactNode } from "react";
-import { Providers } from "@/app/providers";
-import { cn } from "@/lib/utils";
+import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { AppProviders } from "@/components/AppProviders";
 
-const displayFont = Space_Grotesk({
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-display"
+  variable: "--font-space-grotesk"
 });
 
-const monoFont = IBM_Plex_Mono({
+const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-mono",
-  weight: ["400", "500"]
+  variable: "--font-jetbrains-mono"
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://project-zoo.app"),
   title: {
-    default: "project-zoo | Launch Projects Without Boilerplate Setup",
+    default: "project-zoo | Curated Open-Source Starter Templates",
     template: "%s | project-zoo"
   },
   description:
-    "project-zoo is a curated directory of production-ready open-source project templates. Find, preview, and clone the right boilerplate in minutes.",
+    "project-zoo is a curated directory of open-source project templates and boilerplates so developers can clone proven starters instead of rebuilding setup.",
   keywords: [
-    "open source templates",
+    "project templates",
     "starter kits",
-    "project boilerplates",
-    "developer productivity",
+    "boilerplates",
     "Next.js templates",
-    "SaaS starter kits"
+    "developer productivity"
   ],
   openGraph: {
     title: "project-zoo",
     description:
-      "Stop rebuilding setup from scratch. Discover proven project templates across modern stacks and clone in one command.",
-    type: "website",
+      "Find, preview, and clone quality open-source project templates in minutes.",
     url: "https://project-zoo.app",
     siteName: "project-zoo",
-    images: [
-      {
-        url: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-        width: 1200,
-        height: 630,
-        alt: "project-zoo template directory"
-      }
-    ]
+    type: "website"
   },
   twitter: {
     card: "summary_large_image",
     title: "project-zoo",
     description:
-      "A curated template directory for developers who ship often and want to skip repetitive setup.",
-    images: [
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80"
-    ]
-  }
+      "A curated directory of open-source project templates and boilerplates."
+  },
+  metadataBase: new URL("https://project-zoo.app")
 };
 
-interface RootLayoutProps {
-  children: ReactNode;
-}
-
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" className="dark">
-      <body className={cn(displayFont.variable, monoFont.variable, "min-h-screen")}> 
-        <Providers>{children}</Providers>
-        <Script src="https://app.lemonsqueezy.com/js/lemon.js" strategy="afterInteractive" />
+    <html
+      lang="en"
+      className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} dark`}
+      suppressHydrationWarning
+    >
+      <body className="bg-[#0d1117] font-[var(--font-space-grotesk)] text-slate-100 antialiased">
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

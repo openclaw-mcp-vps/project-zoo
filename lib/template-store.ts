@@ -1,32 +1,33 @@
 "use client";
 
 import { create } from "zustand";
-import type { TemplateDifficulty, TemplateLicense } from "@/types/template";
 
-interface TemplateFilterState {
-  search: string;
-  stack: string;
-  difficulty: "all" | TemplateDifficulty;
-  license: "all" | TemplateLicense;
-  setSearch: (value: string) => void;
-  setStack: (value: string) => void;
-  setDifficulty: (value: "all" | TemplateDifficulty) => void;
-  setLicense: (value: "all" | TemplateLicense) => void;
-  resetFilters: () => void;
-}
+type PricingFilter = "all" | "free" | "premium";
 
-const initialState = {
-  search: "",
-  stack: "all",
-  difficulty: "all" as const,
-  license: "all" as const
+type FilterStore = {
+  query: string;
+  category: string;
+  technology: string;
+  pricing: PricingFilter;
+  setQuery: (value: string) => void;
+  setCategory: (value: string) => void;
+  setTechnology: (value: string) => void;
+  setPricing: (value: PricingFilter) => void;
+  reset: () => void;
 };
 
-export const useTemplateFilters = create<TemplateFilterState>((set) => ({
-  ...initialState,
-  setSearch: (value) => set({ search: value }),
-  setStack: (value) => set({ stack: value }),
-  setDifficulty: (value) => set({ difficulty: value }),
-  setLicense: (value) => set({ license: value }),
-  resetFilters: () => set(initialState)
+const defaultState = {
+  query: "",
+  category: "All",
+  technology: "All",
+  pricing: "all" as PricingFilter
+};
+
+export const useTemplateFilterStore = create<FilterStore>((set) => ({
+  ...defaultState,
+  setQuery: (query) => set({ query }),
+  setCategory: (category) => set({ category }),
+  setTechnology: (technology) => set({ technology }),
+  setPricing: (pricing) => set({ pricing }),
+  reset: () => set(defaultState)
 }));

@@ -1,75 +1,72 @@
 import { Octokit } from "octokit";
 
-export interface RepositorySnapshot {
+export interface RepositoryCloneInfo {
   owner: string;
   repo: string;
-  stars: number;
-  forks: number;
+  cloneUrl: string;
   defaultBranch: string;
-  description: string | null;
-  htmlUrl: string;
-}
-
-interface RepoCoordinates {
-  owner: string;
-  repo: string;
 }
 
 const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN
+  auth: process.env.GITHUB_TOKEN,
+  userAgent: "project-zoo/1.0"
 });
 
-export function parseGitHubRepository(repoUrl: string): RepoCoordinates | null {
-  try {
-    const parsed = new URL(repoUrl);
+function parseGitHubRepository(repositoryUrl: string) {
+  const match = repositoryUrl.match(
+    /github\.com\/([\w.-]+)\/([\w.-]+)(?:\.git)?(?:\/.*)?$/i
+  );
 
-    if (parsed.hostname !== "github.com") {
-      return null;
-    }
-
-    const parts = parsed.pathname.replace(/^\//, "").split("/").filter(Boolean);
-
-    if (parts.length < 2) {
-      return null;
-    }
-
-    return {
-      owner: parts[0],
-      repo: parts[1].replace(/\.git$/, "")
-    };
-  } catch {
+  if (!match?.[1] || !match[2]) {
     return null;
   }
+
+  return {
+    owner: match[1],
+    repo: match[2].replace(/\.git$/i, "")
+  };
 }
 
-export function buildCloneCommand(repoUrl: string, targetDirectory?: string): string {
-  const destination = targetDirectory ? ` ${targetDirectory}` : "";
-  return `git clone ${repoUrl}${destination}`;
-}
+export async function getRepositoryCloneInfo(
+  repositoryUrl: string
+): Promise<RepositoryCloneInfo> {
+  const parsed = parseGitHubRepository(repositoryUrl);
 
-export async function getRepositorySnapshot(repoUrl: string): Promise<RepositorySnapshot | null> {
-  const coordinates = parseGitHubRepository(repoUrl);
-
-  if (!coordinates) {
-    return null;
+  if (!parsed) {
+    throw new Error("Invalid GitHub repository URL.");
   }
 
   try {
     const { data } = await octokit.request("GET /repos/{owner}/{repo}", {
-      owner: coordinates.owner,
-      repo: coordinates.repo
+      owner: parsed.owner,
+      repo: parsed.repo
     });
 
     return {
-      owner: coordinates.owner,
-      repo: coordinates.repo,
-      stars: data.stargazers_count,
-      forks: data.forks_count,
-      defaultBranch: data.default_branch,
-      description: data.description,
-      htmlUrl: data.html_url
+      owner: parsed.owner,
+      repo: parsed.repo,
+      cloneUrl: data.clone_url,
+      defaultBranch: data.default_branch
     };
   } catch {
-    return null;
+    return {
+      owner: parsed.owner,
+      repo: parsed.repo,
+      cloneUrl: `https://github.com/${parsed.owner}/${parsed.repo}.git`,
+      defaultBranch: "main"
+    };
   }
+}
+
+export function buildCloneCommand(
+  cloneInfo: RepositoryCloneInfo,
+  targetDirectory: string
+) {
+  const safeTarget = targetDirectory.replace(/[^a-z0-9-_]/gi, "-");
+
+  if (cloneInfo.defaultBranch && cloneInfo.defaultBranch !== "main") {
+    return `git clone --branch ${cloneInfo.defaultBranch} ${cloneInfo.cloneUrl} ${safeTarget}`;
+  }
+
+  return `git clone ${cloneInfo.cloneUrl} ${safeTarget}`;
 }
